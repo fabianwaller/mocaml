@@ -46,21 +46,15 @@ type token = LP | RP | EQ | COL | ARR | ADD | SUB | MUL | LEQ
 
 let is_digit c = 48 <= Char.code c && Char.code c <= 57 
 
-let char_to_num c = match c with 
-  | '0' -> 0
-  | '1' -> 1
-  | '2' -> 2
-  | '3' -> 3
-  | '4' -> 4
-  | '5' -> 5 
-  | '6' -> 6 
-  | '7' -> 7
-  | '8' -> 8
-  | '9' -> 9
+let char_to_int c = match c with 
+  | '0' -> 0 | '1' -> 1 | '2' -> 2 | '3' -> 3 | '4' -> 4 | '5' -> 5 | '6' -> 6 | '7' -> 7 | '8' -> 8 | '9' -> 9
   | _ -> failwith "char_to_num: not a char"
 
 let is_lcletter c = 97 <= Char.code c && Char.code c <= 122 
 let is_ucletter c = 65 <= Char.code c && Char.code c <= 90
+let is_idletter c = is_lcletter c || is_ucletter c || is_digit c || c = '_' || c = '\''
+(* Following OCaml, an identifier must start with a lower case letter and can then continue with digits, 
+lower and upper case letters, and the special characters ’_’ (underline) and ’’’ (quote). *)
 
 let lex s : token list = 
   let get i = String.get s i in
@@ -83,15 +77,28 @@ let lex s : token list =
     | ' ' | '\n' | '\t' -> lex' (i+1) l
     | c -> failwith "lex: illegal character"
 
-    and lex_num i n l = if not (exhausted i) && is_digit (get (i)) then lex_num (i+1) (n*10 + char_to_num (get i)) l else lex_num' i n l
+    and lex_num i n l = if not (exhausted i) && is_digit (get (i)) then lex_num (i+1) (n*10 + char_to_int (get i)) l else lex_num' i n l
     and lex_num' i n l = lex' i (CON (ICON n)::l)
 
-    and lex_id i n l = lex_id' i n l
+    and lex_id i n l = if (not (exhausted i)) && is_idletter (get i) then lex_id (i+1) (n+1) l else lex_id' i n l
     and lex_id' i n l = match get_string i n with
     | "if" -> lex' i (IF::l)
-      (* ... *)
+    | "then" -> lex' i (THEN::l)
+    | "else" -> lex' i (ELSE::l)
+    | "fun" -> lex' i (LAM::l)
+    | "let" -> lex' i (LET::l)
+    | "in" -> lex' i (IN::l)
+    | "rec" -> lex' i (REC::l)
+    | "false" -> lex' i (CON (BCON false)::l)
+    | "true" -> lex' i (CON (BCON true)::l)
     | s -> lex' i (VAR s::l)
-
-    (* Following OCaml, an identifier must start with a lower case letter and can then continue with digits, lower and upper case letters, and the special characters ’ ’ (underline) and ’’’ (quote). *)
-
   in lex' 0 []
+
+let fac_string =
+  "let rec fac a = fun n ->
+    if n <= 1 then a else fac (n*a) (n-1) 
+    in fac 1 7"
+let test = lex fac_string = [LET; REC; VAR "fac"; VAR "a"; EQ; LAM; VAR "n"; ARR; IF; VAR "n"; LEQ;
+CON (ICON 1); THEN; VAR "a"; ELSE; VAR "fac"; LP; VAR "n"; MUL; VAR "a"; RP;
+LP; VAR "n"; SUB; CON (ICON 1); RP; IN; VAR "fac"; CON (ICON 1);
+CON (ICON 7)]
