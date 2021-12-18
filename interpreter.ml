@@ -64,7 +64,7 @@ let lex s : token list =
   let rec lex' i l =
     if exhausted i then List.rev l
     else match get i with
-    | '(' -> lex' (i+1) (LP::l)
+    | '(' -> if verify (i+1) '*' then skip_comment (i+2) 1 l else lex' (i+1) (LP::l)
     | ')' -> lex' (i+1) (RP::l)
     | '=' -> lex' (i+1) (EQ::l)
     | '<' -> if verify (i+1) '=' then lex' (i+2) (LEQ::l) else failwith "lex: only <= ist allowed"
@@ -76,6 +76,13 @@ let lex s : token list =
     | c when is_lcletter c -> lex_id (i+1) 1 l
     | ' ' | '\n' | '\t' -> lex' (i+1) l
     | c -> failwith "lex: illegal character"
+
+    and skip_comment i n l = 
+    if n > 0 then 
+      if verify i '(' && verify (i+1) '*' then skip_comment (i+2) (n+1) l else
+      if verify i '*' && verify (i+1) ')' then skip_comment (i+2) (n-1) l else 
+        skip_comment (i+1) n l
+    else lex' i l 
 
     and lex_num i n l = if not (exhausted i) && is_digit (get (i)) then lex_num (i+1) (n*10 + char_to_int (get i)) l else lex_num' i n l
     and lex_num' i n l = lex' i (CON (ICON n)::l)
@@ -92,6 +99,7 @@ let lex s : token list =
     | "false" -> lex' i (CON (BCON false)::l)
     | "true" -> lex' i (CON (BCON true)::l)
     | s -> lex' i (VAR s::l)
+
   in lex' 0 []
 
 let fac_string =
