@@ -41,7 +41,7 @@ let rec check env exp : ty =
     | Sub, Int, Int -> Int
     | Mul, Int, Int -> Int
     | Leq, Int, Int -> Bool
-    | _, _, _ -> failwith "check_op: arguments ill-typed" in
+    | _, _, _ -> failwith "check_op_app: arguments ill-typed" in
 
   let check_fun_app t1 t2 : ty = match t1 with
     | Arrow (t2',t1') -> if t2' = t2 then t1'
@@ -54,14 +54,14 @@ let rec check env exp : ty =
       | None -> failwith ("typechecker: unbound variable" ^ x)
       end
     | Con (Bcon b) -> Bool
-    | Con (Icon b) -> Int
+    | Con (Icon n) -> Int
     | Oapp (op,e1,e2) -> check_op_app op (check env e1) (check env e2)
     | Fapp (e1,e2) -> check_fun_app (check env e1) (check env e2)
     | If (e1,e2,e3) -> begin match check env e1, check env e2, check env e3 with
       | Bool, t1, t2 -> if t1 = t2 then t1 else failwith "typechecker: conditional types not the same"
-      | _, _, _ -> failwith "typechecker: if expects bool"
+      | _, _, _ -> failwith "typechecker: if expects bool as condition"
         end
-    | Lam (_,_) -> failwith "check: fun missing type specification" (* typing rules need type specs *)
+    | Lam (_,_) -> failwith "typecker: fun missing type specification" (* typing rules need type specs *)
     | Lamty (x,t1,e) -> Arrow (t1, check (update env x t1) e)
     | Let (x,e1,e2) -> check (update env x (check env e1)) e2
     | Letrec (f,x,e1,e2) -> failwith "check: let rec missing type specifications" (* typing rules need type specs *)
@@ -69,13 +69,42 @@ let rec check env exp : ty =
       if check (update e' x t1) e1 = t2 then check e' e2
       else failwith "typechecker: let rec: declared type not matched"
 
-let typecheck_test = check empty
-(Letrecty ("fac", "a", Int, Arrow(Int,Int), 
-           Lamty ("n", Int,
-                  If (Oapp (Leq, Var "n", Con (Icon 1)), Var "a",
-                      Fapp (Fapp (Var "fac", Oapp (Mul, Var "n", Var "a")),
-                            Oapp (Sub, Var "n", Con (Icon 1))))),
-           Fapp (Fapp (Var "fac", Con (Icon 1)), Con (Icon 4)))) = Int
+
+(* Evaluator *)
+
+type value = Bval of bool | Ival of int
+  | Closure of var * exp * (var, value) env
+  | Rclosure of var * var * exp * (var, value) env
+
+let rec eval env exp : value = 
+  let eval_op_app o v1 v2 : value = match o, v1, v2 with
+    | Add, Ival v1, Ival v2 -> Ival (v1 + v2)
+    | Sub, Ival v1, Ival v2 -> Ival (v1 - v2)
+    | Mul, Ival v1, Ival v2 -> Ival (v1 * v2)
+    | Leq, Ival v1, Ival v2 -> Bval (v1 <= v2)
+    | _, _, _ -> failwith "eval_op_app: ill-typed arguments cannot be evaluated" in
+
+  let eval_fun_app v1 v2 : value = match v1 with
+    | Closure (x,e,env) -> eval (update env x v2) e
+    | Rclosure (f,x,e,env) -> eval (update (update env f v1) x v2) e 
+    | _ -> failwith "eval_fun_app: function expected" in
+    
+  match exp with
+    | Var x -> begin match lookup env x with
+      | Some v -> v
+      | None -> failwith ("evaluator: unbound variable" ^ x)
+      end
+    | Con (Bcon b) -> Bval b
+    | Con (Icon n) -> Ival n
+    | Oapp (op,e1,e2) -> eval_op_app op (eval env e1) (eval env e2)
+    | If (e1,e2,e3) -> begin match eval env e1 with
+      | Bval b -> if b then eval env e2 else eval env e3
+      | _ -> failwith "evaluator: if expects bool as condition"
+      end
+    | Let (x,e1,e2) -> eval (update env x (eval env e1)) e2
+    | Lam (x,e) | Lamty (x,_,e) -> Closure (x,e,env)
+    | Fapp (e1,e2) -> eval_fun_app (eval env e1) (eval env e2)
+    | Letrec (f,x,e1,e2) | Letrecty (f,x,_,_,e1,e2) -> eval (update env f (Rclosure (f,x,e1,env))) e2
 
 (* Lexer *)
 
@@ -209,7 +238,7 @@ let parse l =
   in exp l
 
 
-(* testing with sample solutions *)
+(* testing with sample solutions, must all be return true *)
 let test_string =
   "let rec fac a = fun n ->
     if n <= 1 then a else fac (n*a) (n-1) 
@@ -225,3 +254,13 @@ Fapp (Fapp (Var "fac", Oapp (Mul, Var "n", Var "a")),
 Oapp (Sub, Var "n", Con (Icon 1))))),
 Fapp (Fapp (Var "fac", Con (Icon 1)), Con (Icon 5))),
 [])
+
+let typecheck_test = check empty
+(Letrecty ("fac", "a", Int, Arrow(Int,Int), 
+           Lamty ("n", Int,
+                  If (Oapp (Leq, Var "n", Con (Icon 1)), Var "a",
+                      Fapp (Fapp (Var "fac", Oapp (Mul, Var "n", Var "a")),
+                            Oapp (Sub, Var "n", Con (Icon 1))))),
+           Fapp (Fapp (Var "fac", Con (Icon 1)), Con (Icon 4)))) = Int
+
+let eval_test = eval empty (fst(parse(lex test_string))) = Ival 120;;
