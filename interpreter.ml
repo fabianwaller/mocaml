@@ -1,7 +1,81 @@
 (* 
   Mini-OCaml Interpreter 
-  Fabian Waller
 *)
+
+(* Expressions, Types, Environments *)
+
+type ty = Bool | Int | Arrow of ty * ty
+type con = Bcon of bool | Icon of int
+type var = string
+type op = Add | Sub | Mul | Leq
+type exp = Var of var | Con of con
+          | Oapp of op * exp * exp
+          | Fapp of exp * exp
+          | If of exp * exp * exp
+          | Lam of var * exp
+          | Lamty of var * ty * exp
+          | Let of var * exp * exp
+          | Letrec of var * var * exp * exp
+          | Letrecty of var * var * ty * ty * exp * exp
+
+let expFact = 
+  Letrec("fact","x"
+      ,If(Oapp(Leq,Var "x",Con (Icon 1))
+          ,Con (Icon 1)
+          ,Oapp(Mul,Var "x",Fapp(Var "fact",Oapp(Sub,Var "x",Con (Icon 1)))))
+      ,Fapp(Var "fact",Con(Icon 10)))
+
+
+type ('a,'b) env = ('a * 'b) list
+let empty : ('a,'b) env = []
+let update (env : ('a,'b) env) a b : ('a,'b) env = (a,b) :: env
+let rec lookup (env : ('a,'b) env) a = match env with
+  | (a',b) :: env -> if a' = a then Some b else lookup env a
+  | [] -> None
+
+
+(* type checker *) 
+let rec check env exp : ty = 
+  let check_op_app o t1 t2 : ty = match o, t1, t2 with
+    | Add, Int, Int -> Int
+    | Sub, Int, Int -> Int
+    | Mul, Int, Int -> Int
+    | Leq, Int, Int -> Bool
+    | _, _, _ -> failwith "check_op: arguments ill-typed" in
+
+  let check_fun_app t1 t2 : ty = match t1 with
+    | Arrow (t2',t1') -> if t2' = t2 then t1'
+      else failwith "check_fun_app: wrong argument type"
+    | _ -> failwith "check_fun_app: function expected" in
+
+  match exp with
+    | Var x -> begin match lookup env x with
+      | Some t -> t
+      | None -> failwith ("typechecker: unbound variable" ^ x)
+      end
+    | Con (Bcon b) -> Bool
+    | Con (Icon b) -> Int
+    | Oapp (op,e1,e2) -> check_op_app op (check env e1) (check env e2)
+    | Fapp (e1,e2) -> check_fun_app (check env e1) (check env e2)
+    | If (e1,e2,e3) -> begin match check env e1, check env e2, check env e3 with
+      | Bool, t1, t2 -> if t1 = t2 then t1 else failwith "typechecker: conditional types not the same"
+      | _, _, _ -> failwith "typechecker: if expects bool"
+        end
+    | Lam (_,_) -> failwith "check: fun missing type specification" (* typing rules need type specs *)
+    | Lamty (x,t1,e) -> Arrow (t1, check (update env x t1) e)
+    | Let (x,e1,e2) -> check (update env x (check env e1)) e2
+    | Letrec (f,x,e1,e2) -> failwith "check: let rec missing type specifications" (* typing rules need type specs *)
+    | Letrecty (f,x,t1,t2,e1,e2) -> let e' = update env f (Arrow(t1,t2)) in   (* ?? *)
+      if check (update e' x t1) e1 = t2 then check e' e2
+      else failwith "typechecker: let rec: declared type not matched"
+
+let typecheck_test = check empty
+(Letrecty ("fac", "a", Int, Arrow(Int,Int), 
+           Lamty ("n", Int,
+                  If (Oapp (Leq, Var "n", Con (Icon 1)), Var "a",
+                      Fapp (Fapp (Var "fac", Oapp (Mul, Var "n", Var "a")),
+                            Oapp (Sub, Var "n", Con (Icon 1))))),
+           Fapp (Fapp (Var "fac", Con (Icon 1)), Con (Icon 4)))) = Int
 
 (* Lexer *)
 
@@ -68,48 +142,6 @@ let lex s : token list =
 
   in lex' 0 []
 
-let test_string =
-  "let rec fac a = fun n ->
-    if n <= 1 then a else fac (n*a) (n-1) 
-    in fac 1 7"
-let test = lex test_string = [LET; REC; VAR "fac"; VAR "a"; EQ; LAM; VAR "n"; ARR; IF; VAR "n"; LEQ;
-CON (ICON 1); THEN; VAR "a"; ELSE; VAR "fac"; LP; VAR "n"; MUL; VAR "a"; RP;
-LP; VAR "n"; SUB; CON (ICON 1); RP; IN; VAR "fac"; CON (ICON 1);
-CON (ICON 7)]
-
-
-(* Expressions, Types, Environments *)
-
-type ty = Bool | Int | Arrow of ty * ty
-type con = Bcon of bool | Icon of int
-type op = Add | Sub | Mul | Leq
-type var = string
-type exp = Var of var | Con of con
-          | Oapp of op * exp * exp
-          | Fapp of exp * exp
-          | If of exp * exp * exp
-          | Lam of var * exp
-          | Lamty of var * ty * exp
-          | Let of var * exp * exp
-          | Letrec of var * var * exp * exp
-          | Letrecty of var * var * ty * ty * exp * exp
-
-let expFact = 
-  Letrec("fact","x"
-      ,If(Oapp(Leq,Var "x",Con (Icon 1))
-          ,Con (Icon 1)
-          ,Oapp(Mul,Var "x",Fapp(Var "fact",Oapp(Sub,Var "x",Con (Icon 1)))))
-      ,Fapp(Var "fact",Con(Icon 10)))
-
-
-type ('a,'b) env = ('a * 'b) list
-let empty : ('a,'b) env = []
-let update (env : ('a,'b) env) a b : ('a,'b) env = (a,b) :: env
-let rec lookup (env : ('a,'b) env) a = match env with
-  | (a',b) :: env -> if a' = a then Some b else lookup env a
-  | [] -> None
-
-
 
 (* Parser *)
 let parse l = 
@@ -141,19 +173,19 @@ let parse l =
 
   and cexp l = let (e1,l) = sexp l in cexp' e1 l (* comparisons, infix *)
   and cexp' e1 l = match l with
-      | LEQ::l -> let(e2,l) = sexp l in (Oapp(Leq,e1,e2),l)
-      | l -> (e1,l)
+    | LEQ::l -> let(e2,l) = sexp l in (Oapp(Leq,e1,e2),l)
+    | l -> (e1,l)
 
   and sexp l = let (e1,l) = mexp l in sexp' e1 l (* additive operators, infix *)
   and sexp' e1 l = match l with (* auxilary categorie to realize left-associativity *)
-      | ADD::l -> let (e2,l) = mexp l in sexp' (Oapp(Add,e1,e2)) l 
-      | SUB::l -> let (e2,l) = mexp l in sexp' (Oapp(Sub,e1,e2)) l
-      | l -> (e1,l)
+    | ADD::l -> let (e2,l) = mexp l in sexp' (Oapp(Add,e1,e2)) l 
+    | SUB::l -> let (e2,l) = mexp l in sexp' (Oapp(Sub,e1,e2)) l
+    | l -> (e1,l)
 
   and mexp l = let (e1,l) = aexp l in mexp' e1 l (* multiplicative operators, infix *)
   and mexp' e1 l = match l with (* auxilary categorie to realize left-associativity *)
-      | MUL::l -> let(e2,l) = aexp l in aexp' (Oapp(Mul,e1,e2)) l (* why aexp' here?? *)
-      | l -> (e1,l)
+    | MUL::l -> let(e2,l) = aexp l in aexp' (Oapp(Mul,e1,e2)) l (* why aexp' here?? *)
+    | l -> (e1,l)
 
   and aexp l = let (e1,l) = pexp l in aexp' e1 l (* function applications, infix *)
   and aexp' e1 l = match l with (* auxilary categorie to realize left-associativity *)
@@ -164,11 +196,32 @@ let parse l =
     | VAR x::l -> (Var x,l)
     | CON (BCON b)::l -> (Con (Bcon b), l)
     | CON (ICON n)::l -> (Con (Icon n), l)
-    | LP:: l -> let (e,l) = exp l in (e, verify RP l)
+    | LP::l -> let (e,l) = exp l in (e, verify RP l)
     | _ -> failwith ("parsing: pexp")
+
+  (*and ty l = let (t1,l) = pty t in ty' t1 l (* parsing types *)
+  and ty' t1 l = match l with 
+      | ARR::l -> let (t2,l) = ty in
+  and pty l = match l with
+      | BCon::l -> Bool 
+      | ICon::l -> Bool*)
 
   in exp l
 
 
-
-let test = parse (lex test_string)
+(* testing with sample solutions *)
+let test_string =
+  "let rec fac a = fun n ->
+    if n <= 1 then a else fac (n*a) (n-1) 
+    in fac 1 5"
+let lex_test = lex test_string = [LET; REC; VAR "fac"; VAR "a"; EQ; LAM; VAR "n"; ARR; IF; VAR "n"; LEQ;
+CON (ICON 1); THEN; VAR "a"; ELSE; VAR "fac"; LP; VAR "n"; MUL; VAR "a"; RP;
+LP; VAR "n"; SUB; CON (ICON 1); RP; IN; VAR "fac"; CON (ICON 1);
+CON (ICON 5)]
+let parse_test = parse (lex test_string) = (Letrec ("fac", "a",
+Lam ("n",
+If (Oapp (Leq, Var "n", Con (Icon 1)), Var "a",
+Fapp (Fapp (Var "fac", Oapp (Mul, Var "n", Var "a")),
+Oapp (Sub, Var "n", Con (Icon 1))))),
+Fapp (Fapp (Var "fac", Con (Icon 1)), Con (Icon 5))),
+[])
