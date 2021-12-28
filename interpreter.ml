@@ -1,5 +1,6 @@
 (* 
   Mini-OCaml Interpreter 
+  Fabian Waller
 *)
 
 (* Expressions, Types, Environments *)
@@ -42,7 +43,7 @@ let rec check env exp : ty =
   match exp with
     | Var x -> begin match lookup env x with
       | Some t -> t
-      | None -> failwith ("typechecker: unbound variable" ^ x)
+      | None -> failwith ("typechecker: unbound variable " ^ x)
       end
     | Con (Bcon b) -> Bool
     | Con (Icon n) -> Int
@@ -159,6 +160,8 @@ let lex s : token list =
       | "rec" -> lex' i (REC::l)
       | "false" -> lex' i (CON (BCON false)::l)
       | "true" -> lex' i (CON (BCON true)::l)
+      | "bool" -> lex' i (BOOL::l) 
+      | "int" -> lex' i (INT::l)
       | s -> lex' i (VAR s::l)
   in lex' 0 []
 
@@ -178,9 +181,9 @@ let parse l =
     | LAM::VAR x::ARR::l -> 
       let(e,l) = exp l in 
       (Lam(x,e),l)
-    (*| LAM::LP::VAR x::COL::l -> 
-      let(ty,l) = type l in 
-      let(e,l) = exp l in Lamty(x, ty, e)*)
+    | LAM::LP::VAR x::COL::l -> 
+      let(t,l) = ty l in 
+      let(e,l) = exp (verify ARR (verify RP l)) in (Lamty(x, t, e),l)
     | LET::VAR x::EQ::l -> 
       let(e1,l) = exp l in
       let(e2,l) = exp (verify IN l) in
@@ -189,7 +192,12 @@ let parse l =
       let(e1,l) = exp l in
       let(e2,l) = exp (verify IN l) in
       (Letrec(f,x,e1,e2),l)
-    (*| LET::REC::VAR f::LP::VAR x::COL::l -> *) 
+    | LET::REC::VAR f::LP::VAR x::COL::l -> 
+      let (t1,l) = ty l in
+      let (t2,l) = ty (verify COL (verify RP l)) in
+      let (e3,l) = exp (verify EQ l) in
+      let (e4, l) = exp (verify IN l) in 
+      (Letrecty(f,x,t1,t2,e3,e4),l)
     | l -> cexp l
 
   and cexp l = let (e1,l) = sexp l in cexp' e1 l (* comparisons, infix *)
@@ -220,29 +228,29 @@ let parse l =
     | LP::l -> let (e,l) = exp l in (e, verify RP l)
     | _ -> failwith ("parsing: pexp")
 
-  (*and ty l = let (t1,l) = pty t in ty' t1 l (* parsing types *)
+  (* parsing types *)
+  and ty l = let (t1,l) = pty l in ty' t1 l 
   and ty' t1 l = match l with 
-      | ARR::l -> let (t2,l) = ty in
+      | ARR::l -> let (t2,l) = ty l in 
+      (Arrow(t1,t2),l)
+      | _ -> (t1,l)
   and pty l = match l with
-      | BCon::l -> Bool 
-      | ICon::l -> Bool
+      | BOOL::l -> (Bool,l) 
+      | INT::l -> (Int,l)
+      | LP::l -> let (t,l) = ty l in (t, verify RP l)
+      | _ -> failwith "parser: type error"
       
-      add parsing grammar for mini ocaml types here ? *)
-
   in exp l
-
 
 (* Project *)
 
-let checkStr s = check empty (fst(parse (lex s)))
-let evalStr s = eval empty (fst(parse (lex s)))
+let checkStr s = check empty (fst (parse (lex s)))
+let evalStr s = eval empty (fst (parse (lex s)))
 
 
 (* testing with sample solutions, must all be return true *)
-let test_string =
-  "let rec fac a = fun n ->
-    if n <= 1 then a else fac (n*a) (n-1) 
-    in fac 1 5"
+let test_string = "let rec fac a = fun n -> if n <= 1 then a else fac (n*a) (n-1) in fac 1 5"
+let test_string_ty = "let rec fac (a:int) : int -> int = fun (n:int) -> if n <= 1 then a else fac (n*a) (n-1) in fac 1 5"
 
 let expFact = 
   Letrec("fact","x"
@@ -266,7 +274,7 @@ let typecheck_test = check empty
 (Letrecty ("fac", "a", Int, Arrow(Int,Int), 
            Lamty ("n", Int,
                   If (Oapp (Leq, Var "n", Con (Icon 1)), Var "a",
-                      Fapp (Fapp (Var "fac", Oapp (Mul, Var "n", Var "a")),
+                    Fapp (Fapp (Var "fac", Oapp (Mul, Var "n", Var "a")),
                             Oapp (Sub, Var "n", Con (Icon 1))))),
            Fapp (Fapp (Var "fac", Con (Icon 1)), Con (Icon 4)))) = Int
 
