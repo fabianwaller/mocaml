@@ -4,7 +4,7 @@
 
 (* Expressions, Types, Environments *)
 
-type ty = Bool | Int | Arrow of ty * ty
+type ty = Bool | Int | Arrow of ty * ty | Pair of ty * ty
 type con = Bcon of bool | Icon of int
 type var = string
 type op = Add | Sub | Mul | Leq
@@ -18,21 +18,12 @@ type exp = Var of var | Con of con
           | Letrec of var * var * exp * exp
           | Letrecty of var * var * ty * ty * exp * exp
 
-let expFact = 
-  Letrec("fact","x"
-      ,If(Oapp(Leq,Var "x",Con (Icon 1))
-          ,Con (Icon 1)
-          ,Oapp(Mul,Var "x",Fapp(Var "fact",Oapp(Sub,Var "x",Con (Icon 1)))))
-      ,Fapp(Var "fact",Con(Icon 10)))
-
-
 type ('a,'b) env = ('a * 'b) list
 let empty : ('a,'b) env = []
 let update (env : ('a,'b) env) a b : ('a,'b) env = (a,b) :: env
 let rec lookup (env : ('a,'b) env) a = match env with
   | (a',b) :: env -> if a' = a then Some b else lookup env a
   | [] -> None
-
 
 (* type checker *) 
 let rec check env exp : ty = 
@@ -82,7 +73,7 @@ let rec eval env exp : value =
     | Sub, Ival v1, Ival v2 -> Ival (v1 - v2)
     | Mul, Ival v1, Ival v2 -> Ival (v1 * v2)
     | Leq, Ival v1, Ival v2 -> Bval (v1 <= v2)
-    | _, _, _ -> failwith "eval_op_app: ill-typed arguments cannot be evaluated" in
+    | _, _, _ -> failwith "eval_op_app: operator not supported or ill-typed arguments cannot be evaluated" in
 
   let eval_fun_app v1 v2 : value = match v1 with
     | Closure (x,e,env) -> eval (update env x v2) e
@@ -109,7 +100,7 @@ let rec eval env exp : value =
 (* Lexer *)
 
 type const = BCON of bool | ICON of int
-type token = LP | RP | EQ | COL | ARR | ADD | SUB | MUL | LEQ 
+type token = LP | RP | EQ | COL | ARR | ADD | SUB | MUL | LEQ | COM
 | IF | THEN | ELSE | LAM | LET | IN | REC 
 | CON of const | VAR of string | BOOL | INT
 
@@ -133,18 +124,19 @@ let lex s : token list =
   let rec lex' i l =
     if exhausted i then List.rev l
     else match get i with
-    | '(' -> if verify (i+1) '*' then skip_comment (i+2) 1 l else lex' (i+1) (LP::l)
-    | ')' -> lex' (i+1) (RP::l)
-    | '=' -> lex' (i+1) (EQ::l)
-    | '<' -> if verify (i+1) '=' then lex' (i+2) (LEQ::l) else failwith "lex: only <= ist allowed"
-    | ':' -> lex' (i+1) (COL::l)
-    | '-' -> if verify (i+1) '>' then lex' (i+2) (ARR::l) else lex' (i+1) (SUB::l)
-    | '+' -> lex' (i+1) (ADD::l)
-    | '*' -> lex' (i+1) (MUL::l)
-    | c when is_digit c -> lex_num i 0 l
-    | c when is_lcletter c -> lex_id (i+1) 1 l
-    | ' ' | '\n' | '\t' -> lex' (i+1) l
-    | c -> failwith "lex: illegal character"
+      | '(' -> if verify (i+1) '*' then skip_comment (i+2) 1 l else lex' (i+1) (LP::l)
+      | ')' -> lex' (i+1) (RP::l)
+      | '=' -> lex' (i+1) (EQ::l)
+      | '<' -> if verify (i+1) '=' then lex' (i+2) (LEQ::l) else failwith "lex: only <= ist allowed"
+      | ':' -> lex' (i+1) (COL::l)
+      | '-' -> if verify (i+1) '>' then lex' (i+2) (ARR::l) else lex' (i+1) (SUB::l)
+      | '+' -> lex' (i+1) (ADD::l)
+      | '*' -> lex' (i+1) (MUL::l)
+      | ',' -> lex' (i+1) (COM::l)
+      | c when is_digit c -> lex_num i 0 l
+      | c when is_lcletter c -> lex_id (i+1) 1 l
+      | ' ' | '\n' | '\t' -> lex' (i+1) l
+      | c -> failwith "lex: illegal character"
 
     and skip_comment i n l = 
     if n > 0 then 
@@ -158,21 +150,21 @@ let lex s : token list =
 
     and lex_id i n l = if (not (exhausted i)) && is_idletter (get i) then lex_id (i+1) (n+1) l else lex_id' i n l
     and lex_id' i n l = match get_string i n with
-    | "if" -> lex' i (IF::l)
-    | "then" -> lex' i (THEN::l)
-    | "else" -> lex' i (ELSE::l)
-    | "fun" -> lex' i (LAM::l)
-    | "let" -> lex' i (LET::l)
-    | "in" -> lex' i (IN::l)
-    | "rec" -> lex' i (REC::l)
-    | "false" -> lex' i (CON (BCON false)::l)
-    | "true" -> lex' i (CON (BCON true)::l)
-    | s -> lex' i (VAR s::l)
-
+      | "if" -> lex' i (IF::l)
+      | "then" -> lex' i (THEN::l)
+      | "else" -> lex' i (ELSE::l)
+      | "fun" -> lex' i (LAM::l)
+      | "let" -> lex' i (LET::l)
+      | "in" -> lex' i (IN::l)
+      | "rec" -> lex' i (REC::l)
+      | "false" -> lex' i (CON (BCON false)::l)
+      | "true" -> lex' i (CON (BCON true)::l)
+      | s -> lex' i (VAR s::l)
   in lex' 0 []
 
 
 (* Parser *)
+
 let parse l = 
   let verify c l = match l with 
     | [] -> []
@@ -233,9 +225,17 @@ let parse l =
       | ARR::l -> let (t2,l) = ty in
   and pty l = match l with
       | BCon::l -> Bool 
-      | ICon::l -> Bool*)
+      | ICon::l -> Bool
+      
+      add parsing grammar for mini ocaml types here ? *)
 
   in exp l
+
+
+(* Project *)
+
+let checkStr s = check empty (fst(parse (lex s)))
+let evalStr s = eval empty (fst(parse (lex s)))
 
 
 (* testing with sample solutions, must all be return true *)
@@ -243,6 +243,13 @@ let test_string =
   "let rec fac a = fun n ->
     if n <= 1 then a else fac (n*a) (n-1) 
     in fac 1 5"
+
+let expFact = 
+  Letrec("fact","x"
+      ,If(Oapp(Leq,Var "x",Con (Icon 1))
+          ,Con (Icon 1)
+          ,Oapp(Mul,Var "x",Fapp(Var "fact",Oapp(Sub,Var "x",Con (Icon 1)))))
+      ,Fapp(Var "fact",Con(Icon 10)))
 let lex_test = lex test_string = [LET; REC; VAR "fac"; VAR "a"; EQ; LAM; VAR "n"; ARR; IF; VAR "n"; LEQ;
 CON (ICON 1); THEN; VAR "a"; ELSE; VAR "fac"; LP; VAR "n"; MUL; VAR "a"; RP;
 LP; VAR "n"; SUB; CON (ICON 1); RP; IN; VAR "fac"; CON (ICON 1);
