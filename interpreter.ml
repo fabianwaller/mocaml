@@ -10,14 +10,14 @@ type con = Bcon of bool | Icon of int
 type var = string
 type op = Add | Sub | Mul | Leq
 type exp = Var of var | Con of con
-          | Oapp of op * exp * exp
-          | Fapp of exp * exp
-          | If of exp * exp * exp
-          | Lam of var * exp
-          | Lamty of var * ty * exp
-          | Let of var * exp * exp
-          | Letrec of var * var * exp * exp
-          | Letrecty of var * var * ty * ty * exp * exp
+  | Oapp of op * exp * exp
+  | Fapp of exp * exp
+  | If of exp * exp * exp
+  | Lam of var * exp
+  | Lamty of var * ty * exp
+  | Let of var * exp * exp
+  | Letrec of var * var * exp * exp
+  | Letrecty of var * var * ty * ty * exp * exp
 
 type ('a,'b) env = ('a * 'b) list
 let empty : ('a,'b) env = []
@@ -33,11 +33,10 @@ let rec check env exp : ty =
     | Sub, Int, Int -> Int
     | Mul, Int, Int -> Int
     | Leq, Int, Int -> Bool
-    | _, _, _ -> failwith "check_op_app: arguments ill-typed" in
+    | _, _, _ -> failwith "check_op_app: ill-typed operator arguments" in
 
   let check_fun_app t1 t2 : ty = match t1 with
-    | Arrow (t2',t1') -> if t2' = t2 then t1'
-      else failwith "check_fun_app: wrong argument type"
+    | Arrow (t2',t1') -> if t2' = t2 then t1' else failwith "check_fun_app: wrong argument type"
     | _ -> failwith "check_fun_app: function expected" in
 
   match exp with
@@ -50,16 +49,16 @@ let rec check env exp : ty =
     | Oapp (op,e1,e2) -> check_op_app op (check env e1) (check env e2)
     | Fapp (e1,e2) -> check_fun_app (check env e1) (check env e2)
     | If (e1,e2,e3) -> begin match check env e1, check env e2, check env e3 with
-      | Bool, t1, t2 -> if t1 = t2 then t1 else failwith "typechecker: conditional types not the same"
-      | _, _, _ -> failwith "typechecker: if expects bool as condition"
+      | Bool, t1, t2 -> if t1 = t2 then t1 else failwith "typechecker: conditional types are not the same"
+      | _, _, _ -> failwith "typechecker: if expects a boolean as condition"
         end
-    | Lam (_,_) -> failwith "typecker: fun missing type specification" (* typing rules need type specs *)
+    | Lam (_,_) -> failwith "typecker: fun is missing a type specification" (* typing rules need type specs *)
     | Lamty (x,t1,e) -> Arrow (t1, check (update env x t1) e)
     | Let (x,e1,e2) -> check (update env x (check env e1)) e2
-    | Letrec (f,x,e1,e2) -> failwith "check: let rec missing type specifications" (* typing rules need type specs *)
-    | Letrecty (f,x,t1,t2,e1,e2) -> let e' = update env f (Arrow(t1,t2)) in   (* ?? *)
+    | Letrec (f,x,e1,e2) -> failwith "check: let rec is missing type specifications" (* typing rules need type specs *)
+    | Letrecty (f,x,t1,t2,e1,e2) -> let e' = update env f (Arrow(t1,t2)) in
       if check (update e' x t1) e1 = t2 then check e' e2
-      else failwith "typechecker: let rec: declared type not matched"
+      else failwith "typechecker: Letrecty: declared type is not matching"
 
 
 (* Evaluator *)
@@ -74,7 +73,7 @@ let rec eval env exp : value =
     | Sub, Ival v1, Ival v2 -> Ival (v1 - v2)
     | Mul, Ival v1, Ival v2 -> Ival (v1 * v2)
     | Leq, Ival v1, Ival v2 -> Bval (v1 <= v2)
-    | _, _, _ -> failwith "eval_op_app: operator not supported or ill-typed arguments cannot be evaluated" in
+    | _, _, _ -> failwith "eval_op_app: ill-typed operator arguments" in
 
   let eval_fun_app v1 v2 : value = match v1 with
     | Closure (x,e,env) -> eval (update env x v2) e
@@ -84,14 +83,14 @@ let rec eval env exp : value =
   match exp with
     | Var x -> begin match lookup env x with
       | Some v -> v
-      | None -> failwith ("evaluator: unbound variable" ^ x)
+      | None -> failwith ("evaluator: unbound variable " ^ x)
       end
     | Con (Bcon b) -> Bval b
     | Con (Icon n) -> Ival n
     | Oapp (op,e1,e2) -> eval_op_app op (eval env e1) (eval env e2)
     | If (e1,e2,e3) -> begin match eval env e1 with
       | Bval b -> if b then eval env e2 else eval env e3
-      | _ -> failwith "evaluator: if expects bool as condition"
+      | _ -> failwith "evaluator: if expects a boolean as condition"
       end
     | Let (x,e1,e2) -> eval (update env x (eval env e1)) e2
     | Lam (x,e) | Lamty (x,_,e) -> Closure (x,e,env)
@@ -102,14 +101,14 @@ let rec eval env exp : value =
 
 type const = BCON of bool | ICON of int
 type token = LP | RP | EQ | COL | ARR | ADD | SUB | MUL | LEQ | COM
-| IF | THEN | ELSE | LAM | LET | IN | REC 
-| CON of const | VAR of string | BOOL | INT
+  | IF | THEN | ELSE | LAM | LET | IN | REC 
+  | CON of const | VAR of string | BOOL | INT
 
 let is_digit c = 48 <= Char.code c && Char.code c <= 57 
 
 let char_to_int c = match c with 
   | '0' -> 0 | '1' -> 1 | '2' -> 2 | '3' -> 3 | '4' -> 4 | '5' -> 5 | '6' -> 6 | '7' -> 7 | '8' -> 8 | '9' -> 9
-  | _ -> failwith "char_to_num: not a char"
+  | _ -> failwith "char_to_num: input is not a char"
 
 let is_lcletter c = 97 <= Char.code c && Char.code c <= 122 
 let is_ucletter c = 65 <= Char.code c && Char.code c <= 90
@@ -119,7 +118,7 @@ lower and upper case letters, and the special characters ’_’ (underline) and
 
 let lex s : token list = 
   let get i = String.get s i in
-  let get_string i n = String.sub s (i-n) n in (* gets a substring von s  with start index i-n and end index i*)
+  let get_string i n = String.sub s (i-n) n in (* gets a substring von s  with start index i-n and end index i *)
   let exhausted i = i >= String.length s in
   let verify i c = not (exhausted i) && get i = c in
   let rec lex' i l =
@@ -128,7 +127,7 @@ let lex s : token list =
       | '(' -> if verify (i+1) '*' then skip_comment (i+2) 1 l else lex' (i+1) (LP::l)
       | ')' -> lex' (i+1) (RP::l)
       | '=' -> lex' (i+1) (EQ::l)
-      | '<' -> if verify (i+1) '=' then lex' (i+2) (LEQ::l) else failwith "lex: only <= ist allowed"
+      | '<' -> if verify (i+1) '=' then lex' (i+2) (LEQ::l) else failwith "lex: only <= ist allowed in mini-ocaml"
       | ':' -> lex' (i+1) (COL::l)
       | '-' -> if verify (i+1) '>' then lex' (i+2) (ARR::l) else lex' (i+1) (SUB::l)
       | '+' -> lex' (i+1) (ADD::l)
@@ -168,36 +167,31 @@ let lex s : token list =
 
 (* Parser *)
 
-let parse l = 
+let exp l = 
   let verify c l = match l with 
     | [] -> []
     | c'::l -> if c = c' then l else failwith "verify: wrong token" in
-  let rec exp l : exp * token list = match l with (* top level *)
+  let rec exp' l : exp * token list = match l with (* top level *)
     | IF::l -> 
-      let (e1,l) = exp l in
-      let (e2,l) = exp (verify THEN l) in
-      let (e3,l) = exp (verify ELSE l) in
-      (If(e1,e2,e3),l)
+      let (e1,l) = exp' l in
+      let (e2,l) = exp' (verify THEN l) in
+      let (e3,l) = exp' (verify ELSE l) in (If(e1,e2,e3),l)
     | LAM::VAR x::ARR::l -> 
-      let(e,l) = exp l in 
-      (Lam(x,e),l)
+      let (e,l) = exp' l in (Lam(x,e),l)
     | LAM::LP::VAR x::COL::l -> 
-      let(t,l) = ty l in 
-      let(e,l) = exp (verify ARR (verify RP l)) in (Lamty(x, t, e),l)
+      let (t,l) = ty l in 
+      let (e,l) = exp' (verify ARR (verify RP l)) in (Lamty(x,t,e),l)
     | LET::VAR x::EQ::l -> 
-      let(e1,l) = exp l in
-      let(e2,l) = exp (verify IN l) in
-      (Let(x,e1,e2),l)
+      let (e1,l) = exp' l in
+      let (e2,l) = exp' (verify IN l) in (Let(x,e1,e2),l)
     | LET::REC::VAR f::VAR x::EQ::l -> 
-      let(e1,l) = exp l in
-      let(e2,l) = exp (verify IN l) in
-      (Letrec(f,x,e1,e2),l)
+      let (e1,l) = exp' l in
+      let (e2,l) = exp' (verify IN l) in (Letrec(f,x,e1,e2),l)
     | LET::REC::VAR f::LP::VAR x::COL::l -> 
       let (t1,l) = ty l in
       let (t2,l) = ty (verify COL (verify RP l)) in
-      let (e3,l) = exp (verify EQ l) in
-      let (e4, l) = exp (verify IN l) in 
-      (Letrecty(f,x,t1,t2,e3,e4),l)
+      let (e1,l) = exp' (verify EQ l) in
+      let (e2, l) = exp' (verify IN l) in (Letrecty(f,x,t1,t2,e1,e2),l)
     | l -> cexp l
 
   and cexp l = let (e1,l) = sexp l in cexp' e1 l (* comparisons, infix *)
@@ -213,7 +207,7 @@ let parse l =
 
   and mexp l = let (e1,l) = aexp l in mexp' e1 l (* multiplicative operators, infix *)
   and mexp' e1 l = match l with (* auxilary categorie to realize left-associativity *)
-    | MUL::l -> let(e2,l) = aexp l in aexp' (Oapp(Mul,e1,e2)) l (* why aexp' here?? *)
+    | MUL::l -> let(e2,l) = aexp l in mexp' (Oapp(Mul,e1,e2)) l (* why aexp' in github here?? *)
     | l -> (e1,l)
 
   and aexp l = let (e1,l) = pexp l in aexp' e1 l (* function applications, infix *)
@@ -225,30 +219,33 @@ let parse l =
     | VAR x::l -> (Var x,l)
     | CON (BCON b)::l -> (Con (Bcon b), l)
     | CON (ICON n)::l -> (Con (Icon n), l)
-    | LP::l -> let (e,l) = exp l in (e, verify RP l)
-    | _ -> failwith ("parsing: pexp")
+    | LP::l -> let (e,l) = exp' l in (e, verify RP l)
+    | _ -> failwith ("parsing: bottom level (pexp)")
 
   (* parsing types *)
   and ty l = let (t1,l) = pty l in ty' t1 l 
   and ty' t1 l = match l with 
-      | ARR::l -> let (t2,l) = ty l in 
-      (Arrow(t1,t2),l)
+      | ARR::l -> let (t2,l) = ty l in (Arrow(t1,t2),l)
       | _ -> (t1,l)
   and pty l = match l with
       | BOOL::l -> (Bool,l) 
       | INT::l -> (Int,l)
       | LP::l -> let (t,l) = ty l in (t, verify RP l)
-      | _ -> failwith "parser: type error"
+      | _ -> failwith "parser: type specification error"
       
-  in exp l
+  in exp' l
 
 (* Project *)
 
-let checkStr s = check empty (fst (parse (lex s)))
-let evalStr s = eval empty (fst (parse (lex s)))
+let checkStr s = check empty (fst (exp (lex s)))
+let evalStr s = eval empty (fst (exp (lex s)))
 
 
-(* testing with sample solutions, must all be return true *)
+(* 
+Test and Debug
+testing with sample solutions, must all be return true 
+*)
+
 let test_string = "let rec fac a = fun n -> if n <= 1 then a else fac (n*a) (n-1) in fac 1 5"
 let test_string_ty = "let rec fac (a:int) : int -> int = fun (n:int) -> if n <= 1 then a else fac (n*a) (n-1) in fac 1 5"
 
@@ -262,7 +259,7 @@ let lex_test = lex test_string = [LET; REC; VAR "fac"; VAR "a"; EQ; LAM; VAR "n"
 CON (ICON 1); THEN; VAR "a"; ELSE; VAR "fac"; LP; VAR "n"; MUL; VAR "a"; RP;
 LP; VAR "n"; SUB; CON (ICON 1); RP; IN; VAR "fac"; CON (ICON 1);
 CON (ICON 5)]
-let parse_test = parse (lex test_string) = (Letrec ("fac", "a",
+let parse_test = exp (lex test_string) = (Letrec ("fac", "a",
 Lam ("n",
 If (Oapp (Leq, Var "n", Con (Icon 1)), Var "a",
 Fapp (Fapp (Var "fac", Oapp (Mul, Var "n", Var "a")),
@@ -270,12 +267,5 @@ Oapp (Sub, Var "n", Con (Icon 1))))),
 Fapp (Fapp (Var "fac", Con (Icon 1)), Con (Icon 5))),
 [])
 
-let typecheck_test = check empty
-(Letrecty ("fac", "a", Int, Arrow(Int,Int), 
-           Lamty ("n", Int,
-                  If (Oapp (Leq, Var "n", Con (Icon 1)), Var "a",
-                    Fapp (Fapp (Var "fac", Oapp (Mul, Var "n", Var "a")),
-                            Oapp (Sub, Var "n", Con (Icon 1))))),
-           Fapp (Fapp (Var "fac", Con (Icon 1)), Con (Icon 4)))) = Int
-
-let eval_test = eval empty (fst(parse(lex test_string))) = Ival 120;;
+let typecheck_test = check empty (fst(exp(lex test_string_ty))) = Int
+let eval_test = eval empty (fst(exp(lex test_string))) = Ival 120;;
