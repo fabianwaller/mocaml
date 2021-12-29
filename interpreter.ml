@@ -5,7 +5,7 @@
 
 (* Expressions, Types, Environments *)
 
-type ty = Bool | Int | Arrow of ty * ty | Pair of ty * ty
+type ty = Bool | Int | Arrow of ty * ty
 type con = Bcon of bool | Icon of int
 type var = string
 type op = Add | Sub | Mul | Leq
