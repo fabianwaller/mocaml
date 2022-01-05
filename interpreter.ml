@@ -288,7 +288,7 @@ let evalStr s = eval empty (fst (parse (lex s)))
 
 (* 
 Test and Debug
-testing with sample solutions, must all be return true 
+testing with sample solutions, must all return true 
 *)
 
 let test_string = "let rec fac a = fun n -> if n <= 1 then a else fac (n*a) (n-1) in fac 1 5"
