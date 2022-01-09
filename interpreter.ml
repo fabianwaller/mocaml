@@ -9,9 +9,11 @@ type ty = Bool | Int | Arrow of ty * ty | Par of ty * ty | Tri of ty * ty * ty
 type proj = Fst | Snd | Trd
 type con = Bcon of bool | Icon of int
 type var = string
-type op = Add | Sub | Mul | Leq
+type op = Add | Sub | Mul | Leq 
+type uop = Neq
 type exp = Var of var | Con of con
   | Oapp of op * exp * exp
+  | UnOapp of uop * exp
   | Fapp of exp * exp
   | If of exp * exp * exp
   | Lam of var * exp
@@ -39,6 +41,10 @@ let rec check env exp : ty =
     | Leq, Int, Int -> Bool
     | _, _, _ -> failwith "check_op_app: ill-typed operator arguments" in
 
+  let check_unop_app o t1 : ty = match o, t1 with
+    | Neq, Bool -> Bool
+    | _, _ -> failwith "check_unop_app: ill-typed operator argument" in
+
   let check_fun_app t1 t2 : ty = match t1 with
     | Arrow (t2',t1') -> if t2' = t2 then t1' else failwith "check_fun_app: wrong argument type"
     | _ -> failwith "check_fun_app: function expected" in
@@ -59,6 +65,7 @@ let rec check env exp : ty =
     | Con (Bcon b) -> Bool
     | Con (Icon n) -> Int
     | Oapp (op,e1,e2) -> check_op_app op (check env e1) (check env e2)
+    | UnOapp (op,e1) -> check_unop_app op (check env e1)
     | Fapp (e1,e2) -> check_fun_app (check env e1) (check env e2)
     | If (e1,e2,e3) -> begin match check env e1, check env e2, check env e3 with
       | Bool, t1, t2 -> if t1 = t2 then t1 else failwith "typechecker: conditional types are not the same"
@@ -95,6 +102,10 @@ let rec eval env exp : value =
     | Leq, Ival v1, Ival v2 -> Bval (v1 <= v2)
     | _, _, _ -> failwith "eval_op_app: ill-typed operator arguments" in
 
+  let eval_unop_app o v1 : value = match o, v1 with
+    | Neq, Bval b -> Bval (not b)
+    | _, _ -> failwith "check_unop_app: ill-typed operator argument" in
+
   let eval_fun_app v1 v2 : value = match v1 with
     | Closure (x,e,env) -> eval (update env x v2) e
     | Rclosure (f,x,e,env) -> eval (update (update env f v1) x v2) e 
@@ -116,6 +127,7 @@ let rec eval env exp : value =
     | Con (Bcon b) -> Bval b
     | Con (Icon n) -> Ival n
     | Oapp (op,e1,e2) -> eval_op_app op (eval env e1) (eval env e2)
+    | UnOapp (op,e1) -> eval_unop_app op (eval env e1)
     | If (e1,e2,e3) -> begin match eval env e1 with
       | Bval b -> eval env (if b then e2 else e3)
       | _ -> failwith "evaluator: if expects a boolean as condition"
@@ -132,7 +144,7 @@ let rec eval env exp : value =
 
 type const = BCON of bool | ICON of int
 type token = LP | RP | EQ | COL | ARR | ADD | SUB | MUL | LEQ | COM
-  | IF | THEN | ELSE | LAM | LET | IN | REC | FST | SND | TRD
+  | IF | THEN | ELSE | LAM | LET | IN | REC | FST | SND | TRD | NOT
   | CON of const | VAR of string | BOOL | INT
 
 let is_digit c = 48 <= Char.code c && Char.code c <= 57 
@@ -166,7 +178,7 @@ let lex s : token list =
       | ',' -> lex' (i+1) (COM::l)
       | c when is_digit c -> lex_num i 0 l
       | c when is_lcletter c -> lex_id (i+1) 1 l
-      | ' ' | '\n' | '\t' -> lex' (i+1) l
+      | ' ' | '\n' | '\t' | '\r' -> lex' (i+1) l
       | c -> failwith "lex: illegal character"
 
     and skip_comment i n l = 
@@ -195,6 +207,7 @@ let lex s : token list =
       | "fst" -> lex' i (FST::l)
       | "snd" -> lex' i (SND::l)
       | "trd" -> lex' i (TRD::l)
+      | "not" -> lex' i (NOT::l)
       | s -> lex' i (VAR s::l)
   in lex' 0 []
 
@@ -265,6 +278,7 @@ let parse l =
           end
         | _ -> (e1, verify RP l)
       end
+    | NOT::l -> let (e,l) = exp' l in (UnOapp(Neq,e),l)
     | _ -> failwith "parsing: bottom level (pexp)"
 
   (* parsing types *)
