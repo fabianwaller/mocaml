@@ -292,12 +292,15 @@ let parse l =
       | LP::l -> let (t,l) = ty l in (t, verify RP l)
       | _ -> failwith "parser: type specification error"
     
-  in exp' l
+  in let (e,l) = exp' l in match l with 
+    | [] -> e
+    | _ -> failwith "parser: unparsed tokens remaining in the rest list"
+
 
 (* Project *)
 
-let checkStr s = check empty (fst (parse (lex s)))
-let evalStr s = eval empty (fst (parse (lex s)))
+let checkStr s = check empty (parse (lex s))
+let evalStr s = eval empty (parse (lex s))
 
 
 (* 
@@ -323,8 +326,7 @@ Lam ("n",
 If (Oapp (Leq, Var "n", Con (Icon 1)), Var "a",
 Fapp (Fapp (Var "fac", Oapp (Mul, Var "n", Var "a")),
 Oapp (Sub, Var "n", Con (Icon 1))))),
-Fapp (Fapp (Var "fac", Con (Icon 1)), Con (Icon 5))),
-[])
+Fapp (Fapp (Var "fac", Con (Icon 1)), Con (Icon 5))))
 
-let typecheck_test = check empty (fst(parse(lex test_string_ty))) = Int
-let eval_test = eval empty (fst(parse(lex test_string))) = Ival 120;;
+let typecheck_test = check empty (parse(lex test_string_ty)) = Int
+let eval_test = eval empty (parse(lex test_string)) = Ival 120;;
