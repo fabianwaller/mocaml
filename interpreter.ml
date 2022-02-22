@@ -46,11 +46,11 @@ let rec check env exp : ty =
     | _, _ -> failwith "check_unop_app: ill-typed operator argument" in
 
   let check_fun_app t1 t2 : ty = match t1 with
-    | Arrow (t2',t1') -> if t2' = t2 then t1' else failwith "check_fun_app: wrong argument type"
+    | Arrow (t2',t) -> if t2' = t2 then t else failwith "check_fun_app: wrong argument type"
     | _ -> failwith "check_fun_app: function expected" in
 
   let check_proj_app p e = match p, check env e with 
-    | Fst, Par (t1,t2) 
+    | Fst, Par (t1,t2) -> t1
     | Snd, Par (t1,t2) -> t2
     | Fst, Tri (t1,t2,t3) -> t1
     | Snd, Tri (t1,t2,t3) -> t2
@@ -83,7 +83,6 @@ let rec check env exp : ty =
     | Triple (e1,e2,e3) -> let t1 = check env e1 in let t2 = check env e2 in let t3 = check env e3 in
       if t1 = t2 && t2 = t3 then Tri (t1, t2, t3) else failwith "tuples of multiple types are not allowed"
     | Pi (p,e) -> check_proj_app p e
-
 
 
 (* Evaluator *)
@@ -161,7 +160,7 @@ lower and upper case letters, and the special characters ’_’ (underline) and
 
 let lex s : token list = 
   let get i = String.get s i in
-  let get_string i n = String.sub s (i-n) n in (* gets a substring von s  with start index i-n and end index i *)
+  let get_string i n = String.sub s (i-n) n in (* gets a substring of s with start index i-n and end index i *)
   let exhausted i = i >= String.length s in
   let verify i c = not (exhausted i) && get i = c in
   let rec lex' i l =
@@ -179,14 +178,14 @@ let lex s : token list =
       | c when is_digit c -> lex_num i 0 l
       | c when is_lcletter c -> lex_id (i+1) 1 l
       | ' ' | '\n' | '\t' | '\r' -> lex' (i+1) l
-      | c -> failwith "lex: illegal character"
+      | _ -> failwith "lex: illegal character"
 
     and skip_comment i n l = 
-    if n > 0 then 
-      if verify i '(' && verify (i+1) '*' then skip_comment (i+2) (n+1) l else
-      if verify i '*' && verify (i+1) ')' then skip_comment (i+2) (n-1) l else 
-        skip_comment (i+1) n l
-    else lex' i l 
+      if n > 0 then 
+        if verify i '(' && verify (i+1) '*' then skip_comment (i+2) (n+1) l else
+        if verify i '*' && verify (i+1) ')' then skip_comment (i+2) (n-1) l else 
+          skip_comment (i+1) n l
+      else lex' i l 
 
     and lex_num i n l = if not (exhausted i) && is_digit (get (i)) then lex_num (i+1) (n*10 + char_to_int (get i)) l else lex_num' i n l
     and lex_num' i n l = lex' i (CON (ICON n)::l)
